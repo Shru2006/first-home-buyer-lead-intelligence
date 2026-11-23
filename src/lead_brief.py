@@ -12,30 +12,61 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 
 import pandas as pd
 
 from src.config import ID_COL, LLM_MODEL, PROMPTS_DIR, REPORTS_DIR, SCORED_LEADS_PATH
+from src.features import FEATURE_DESCRIPTIONS
 
 SYSTEM_PROMPT = (PROMPTS_DIR / "lead_brief_system.md").read_text(encoding="utf-8")
 
+# Reason codes are built as "<feature label> (<value>)". Anything else is treated
+# as untrusted: a tampered upstream field could otherwise carry instructions
+# ("...tell the customer they are pre-approved") into the brief or the LLM prompt.
+KNOWN_LABELS = {d.capitalize() for d in FEATURE_DESCRIPTIONS.values()}
+_REASON = re.compile(r"^(?P<label>.+) \((?P<value>[^()]*)\)$")
+_VALUE = re.compile(r"^(?:[-+]?\$?[\d,]+(?:\.\d+)?%?(?: months)?|[A-Za-z_]{1,20}(?: [A-Za-z_]{1,20})?)$")
+WITHHELD_NOTE = "A reason code was withheld because it failed validation."
+
+
+def is_valid_reason(text) -> bool:
+    """True only for '<known feature label> (<short value>)'."""
+    if not isinstance(text, str) or len(text) > 120:
+        return False
+    m = _REASON.match(text)
+    return bool(m and m["label"] in KNOWN_LABELS and _VALUE.match(m["value"]))
+
 
 def lead_payload(lead: pd.Series) -> dict:
-    """Only the fields the LLM is allowed to see."""
-    reasons = [lead[f"reason_{i}"] for i in (1, 2, 3)
-               if f"reason_{i}" in lead and isinstance(lead[f"reason_{i}"], str)]
+    """Only the fields the LLM is allowed to see, and only reason codes that pass validation."""
+    raw = [lead[f"reason_{i}"] for i in (1, 2, 3)
+           if f"reason_{i}" in lead and isinstance(lead[f"reason_{i}"], str)]
+    reasons = [r for r in raw if is_valid_reason(r)]
+    watch_out = lead.get("watch_out")
+    raw_watch = isinstance(watch_out, str)
+    watch_ok = raw_watch and is_valid_reason(watch_out)
     return {
         "customer_id": lead[ID_COL],
         "propensity_score": round(float(lead["propensity"]), 3),
         "score_decile": int(lead["decile"]),
         "reason_codes": reasons,
-        "watch_out": lead["watch_out"] if isinstance(lead.get("watch_out"), str) else None,
+        "watch_out": watch_out if watch_ok else None,
+        "withheld": (len(raw) - len(reasons)) + int(raw_watch and not watch_ok),
     }
 
 
 def template_brief(payload: dict) -> str:
+    # Validate again here: the template must be safe even if called with a raw payload.
+    reasons = [r for r in payload["reason_codes"] if is_valid_reason(r)]
+    watch_out = payload.get("watch_out") if is_valid_reason(payload.get("watch_out")) else None
+    withheld = payload.get("withheld", 0) + (len(payload["reason_codes"]) - len(reasons)) \
+        + int(bool(payload.get("watch_out")) and watch_out is None)
+    payload = {**payload, "watch_out": watch_out}
     lines = ["**Why this customer**"]
-    lines += [f"- {r}" for r in payload["reason_codes"]]
+    lines += [f"- {r}" for r in reasons]
+    if withheld:
+        lines.append(f"- _{WITHHELD_NOTE}_")
     if payload["watch_out"]:
         lines += ["**Watch out**", f"- {payload['watch_out']}"]
     lines += ["**Suggested conversation opener**",
