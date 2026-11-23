@@ -1,0 +1,19 @@
+# Python
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# Secrets
+.env
+
+# Generated data and models (re-created by the pipeline)
+data/*.csv
+models/
+
+# Personal notes not meant for the public repo
+MY_GITHUB_STEPS.md
+
+# OS
+.DS_Store
+Thumbs.db

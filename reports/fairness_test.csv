@@ -1,0 +1,9 @@
+group,attribute,customers,mean_score,selection_rate,actual_application_rate,small_sample,selection_ratio_vs_max
+<25,age_band,1775,0.0542,0.0901,0.0468,False,0.8328
+25-34,age_band,5355,0.0558,0.0988,0.0592,False,0.9126
+35-44,age_band,4379,0.0575,0.1082,0.0585,False,1.0
+45-54,age_band,957,0.0516,0.0867,0.0575,False,0.8012
+55+,age_band,34,0.0429,0.1176,0.0,True,1.0869
+F,gender,6224,0.0542,0.0954,0.0556,False,0.904
+M,gender,6157,0.0577,0.1056,0.0583,False,1.0
+X,gender,119,0.0409,0.0504,0.0504,True,0.4776
